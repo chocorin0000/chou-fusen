@@ -1043,7 +1043,7 @@ function helpDialog() {
   dialog({ title: '使い方', body: box, buttons: [['閉じる']] });
 }
 function aboutDialog() {
-  dialog({ title: '超！付箋電卓', body: 'Web 版 v1（Android 版 v3 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN', buttons: [['閉じる']] });
+  dialog({ title: '超！付箋電卓', body: 'Web 版 v2（Android 版 v3 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN', buttons: [['閉じる']] });
 }
 
 // ================= はじめ =================
