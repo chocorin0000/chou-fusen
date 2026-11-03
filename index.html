@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>超！付箋電卓</title>
+<meta name="description" content="付箋に貼れる、広告なしの電卓（消費税・円・ドル・ユーロ）">
+<meta name="theme-color" content="#24324A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="超！付箋電卓">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root {
+  --navy: #24324A; --gold: #FFC94D; --coral: #E86A4A; --teal: #3F8A78; --cream: #F4EFE6;
+  --font: -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans JP", sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--navy); overflow: hidden; overscroll-behavior: none; }
+body { font-family: var(--font); color: var(--navy); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#app {
+  position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--cream);
+  max-width: 560px; margin: 0 auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+#app::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: env(safe-area-inset-top); background: var(--navy); }
+button { font-family: inherit; border: none; cursor: pointer; padding: 0; color: inherit; }
+
+/* 上の帯 */
+#top { height: 54px; flex: none; display: flex; align-items: stretch; background: var(--navy); color: #fff; }
+#top .bb { width: 54px; background: none; color: #fff; font-size: 24px; }
+#top .bb:active { background: #34466A; }
+#top .mid { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; }
+#title { font-size: 19px; font-weight: bold; line-height: 1.15; }
+#title .chou { color: var(--gold); font-size: 1.35em; }
+#boardName { font-size: 11px; color: rgba(255,255,255,.67); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* キャンバス */
+#boardBox { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+#selHint { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 12px; color: rgba(36,50,74,.6); padding: 4px 0; pointer-events: none; }
+#selBar { position: absolute; left: 0; right: 0; bottom: 0; display: none; align-items: center; gap: 6px; padding: 5px 8px 5px 12px;
+  background: rgba(232,106,74,.94); border-radius: 14px 14px 0 0; box-shadow: 0 -2px 6px rgba(0,0,0,.18); color: #fff; }
+#selText { flex: 1; font-size: 15px; font-weight: bold; line-height: 1.3; }
+#selBar button { height: 36px; border-radius: 18px; padding: 0 12px; font-size: 13px; font-weight: bold; }
+#selGo { background: #fff; color: var(--coral); }
+#selOff { background: rgba(255,255,255,.25); color: #fff; }
+
+/* 道具の列 */
+#tools { height: 41px; flex: none; display: flex; gap: 6px; padding: 5px 9px 3px; }
+.chip { border-radius: 19px; font-size: 15px; font-weight: bold; color: #fff; display: flex; align-items: center; justify-content: center; line-height: 1.05; text-align: center; }
+.chip:active { filter: brightness(.82); }
+#rateChip { flex: .85; background: var(--navy); }
+#taxIn { flex: 1.05; background: var(--teal); }
+#taxEx { flex: 1.05; background: #5B7F9E; }
+#curBtn { flex: 1.05; background: #8A6FB0; }
+#delBtn { flex: .85; background: #B5544A; font-size: 12px; }
+
+/* 数字の欄 */
+#dispRow { height: 77px; flex: none; display: flex; gap: 6px; padding: 4px 6px; }
+.key { border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1.5px 2px rgba(0,0,0,.18); }
+.key:active { filter: brightness(.82); }
+#clearBtn { width: 66px; flex: none; background: #8A94A6; color: #fff; font-size: 26px; }
+#sumBtn { width: 78px; flex: none; background: var(--gold); color: var(--navy); font-size: 16px; line-height: 1.25; text-align: center; white-space: pre-line; }
+#disp { flex: 1; min-width: 0; position: relative; background: #fff; border: 1.5px solid rgba(36,50,74,.2); border-radius: 14px; touch-action: none; overflow: hidden; }
+#disp.target { background: #FFE9B0; border: 3px solid var(--coral); }
+#dispPend { position: absolute; left: 12px; top: 3px; font-size: 12px; color: #8A94A6; white-space: nowrap; }
+#dispSub { position: absolute; right: 12px; top: 3px; font-size: 12px; color: #8A94A6; white-space: nowrap; }
+#dispNum { position: absolute; right: 12px; bottom: 4px; font-size: 38px; font-weight: 500; white-space: nowrap; line-height: 1; transform-origin: right bottom; }
+
+/* キー */
+#keys { height: 276px; flex: none; display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(4, 1fr); gap: 6px; padding: 5px 6px 9px; }
+#keys .key { font-size: 28px; }
+.k-num { background: #fff; color: var(--navy); }
+.k-op { background: #DCE6F2; color: var(--navy); }
+.k-fn { background: #5E6B80; color: #fff; }
+.k-eq { background: var(--coral); color: #fff; }
+
+/* 引っぱっている付箋 */
+#ghost { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
+
+/* ダイアログ */
+#dlgBack { position: fixed; inset: 0; background: rgba(0,0,0,.42); z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; }
+#dlgBack.show { display: flex; }
+.dlg { background: #fff; border-radius: 14px; width: 100%; max-width: 420px; max-height: calc(100% - 20px); display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+.dlg h3 { margin: 0; padding: 18px 20px 8px; font-size: 19px; font-weight: normal; color: #222; }
+.dlg .body { padding: 4px 20px 8px; overflow-y: auto; -webkit-overflow-scrolling: touch; color: #333; font-size: 15px; line-height: 1.6; }
+.dlg .items { overflow-y: auto; padding: 0 0 6px; }
+.dlg .item { display: block; width: 100%; text-align: left; background: none; padding: 13px 22px; font-size: 16px; color: #222; }
+.dlg .item:active { background: #eee; }
+.dlg .btns { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; padding: 6px 12px 12px; }
+.dlg .btns button { background: none; color: var(--coral); font-size: 16px; padding: 10px 12px; border-radius: 8px; }
+.dlg .btns button:active { background: #f3e2dd; }
+.dlg .btns .left { margin-right: auto; }
+.dlg input[type=text], .dlg input[type=number], .dlg input:not([type]) { width: 100%; font-size: 17px; padding: 8px 4px; border: none; border-bottom: 2px solid #999; outline: none; font-family: inherit; -webkit-user-select: text; user-select: text; }
+.dlg input:focus { border-bottom-color: var(--coral); }
+.dlg label.radio { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 16px; }
+.dlg label.radio input { width: 20px; height: 20px; accent-color: var(--coral); }
+.seg { display: flex; gap: 6px; margin: 4px 0; }
+.seg button { flex: 1; height: 44px; border-radius: 10px; font-size: 15px; font-weight: bold; background: #E9EDF2; color: var(--navy); }
+.seg button.on { background: var(--navy); color: #fff; }
+.curRow { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
+.curRow .v { flex: 1; font-weight: bold; font-size: 20px; line-height: 1.25; color: var(--navy); }
+.curRow .v.src { font-size: 15px; color: #888; }
+.curRow button { border-radius: 19px; font-size: 12px; font-weight: bold; height: 46px; line-height: 1.2; }
+.curRow .toCalc { width: 74px; background: var(--teal); color: #fff; }
+.curRow .toNote { width: 64px; background: var(--gold); color: var(--navy); }
+.wide { display: block; width: 100%; height: 42px; border-radius: 20px; font-size: 15px; font-weight: bold; color: #fff; background: #5B7F9E; margin-top: 12px; }
+.small { font-size: 13px; color: #666; }
+.hist { padding: 11px 20px; border-bottom: 1px solid #eee; font-size: 15px; color: #222; word-break: break-all; }
+.hist:active { background: #eee; }
+.help h4 { margin: 12px 0 2px; font-size: 15px; color: var(--navy); }
+.help p { margin: 0 0 4px; }
+
+/* 知らせ */
+#toast { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); background: rgba(60,60,60,.92); color: #fff; padding: 10px 18px; border-radius: 22px; font-size: 14px; z-index: 200; max-width: 88%; text-align: center; white-space: pre-line; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <button class="bb" id="boardsBtn" aria-label="キャンバス">☰</button>
+    <div class="mid">
+      <div id="title"><span class="chou">超</span>！付箋電卓</div>
+      <div id="boardName"></div>
+    </div>
+    <button class="bb" id="menuBtn" aria-label="メニュー">⋮</button>
+  </div>
+  <div id="boardBox">
+    <canvas id="board"></canvas>
+    <div id="selHint">付箋をタップすると選べます。選んだ付箋だけを足せます</div>
+    <div id="selBar"><div id="selText"></div><button id="selGo">合計を電卓へ</button><button id="selOff">はずす</button></div>
+  </div>
+  <div id="tools">
+    <button class="chip" id="rateChip">10%</button>
+    <button class="chip" id="taxIn">税込に</button>
+    <button class="chip" id="taxEx">税抜に</button>
+    <button class="chip" id="curBtn">¥ $ €</button>
+    <button class="chip" id="delBtn">付箋を<br>消す</button>
+  </div>
+  <div id="dispRow">
+    <button class="key" id="clearBtn">C</button>
+    <div id="disp"><div id="dispPend"></div><div id="dispSub"></div><div id="dispNum">0</div></div>
+    <button class="key" id="sumBtn">Σ
+全部</button>
+  </div>
+  <div id="keys"></div>
+</div>
+<canvas id="ghost"></canvas>
+<div id="dlgBack"></div>
+<div id="toast"></div>
+<script src="js/dec.js?v=1"></script>
+<script src="js/app.js?v=1"></script>
+<script>
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
+</body>
+</html>
