@@ -26,6 +26,8 @@ body { font-family: var(--font); color: var(--navy); -webkit-user-select: none; 
   max-width: 560px; margin: 0 auto;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) max(4px, calc(env(safe-area-inset-bottom) - 16px)) env(safe-area-inset-left);
 }
+/* ホーム画面から開いた iPhone で、ページが画面の下まで届かないとき（下の余白はいらない） */
+html.shortvp #app { padding-bottom: 4px; }
 #app::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: env(safe-area-inset-top); background: var(--navy); }
 button { font-family: inherit; border: none; cursor: pointer; padding: 0; color: inherit; }
 
@@ -153,8 +155,18 @@ button { font-family: inherit; border: none; cursor: pointer; padding: 0; color:
 <canvas id="ghost"></canvas>
 <div id="dlgBack"></div>
 <div id="toast"></div>
-<script src="js/dec.js?v=3"></script>
-<script src="js/app.js?v=3"></script>
+<script>
+(function () {
+  if (!(navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches))) return;
+  function fit() {
+    var port = innerHeight >= innerWidth, sh = port ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    document.documentElement.classList.toggle('shortvp', sh - innerHeight >= 20);
+  }
+  fit(); addEventListener('resize', fit);
+})();
+</script>
+<script src="js/dec.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
 <script>
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 </script>
