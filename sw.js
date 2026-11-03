@@ -1,6 +1,6 @@
 // 電波がないときでも開けるように、ページのファイルを覚えておく。
 // 電波があるときは、いつもサーバーから新しいものを読む（直した版がすぐに届くように）。
-const CACHE = 'fusen-v5';
+const CACHE = 'fusen-v6';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png',
   'js/dec.js', 'js/app.js'];
 
