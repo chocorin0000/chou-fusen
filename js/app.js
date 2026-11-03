@@ -10,14 +10,17 @@ const NAVY = '#24324A', CORAL = '#E86A4A', INK = '#24324A';
 
 // ================= 保存 =================
 const st = {
-  boards: [], cur: 0, history: [], rateA: 10, rateB: 8, rateSel: 0, round: 0, vibrate: true,
+  boards: [], cur: 0, history: [], rateA: 10, rateB: 8, rateSel: 0, round: 0, vibrate: true, keepValue: true,
   newColor: 0, nextId: 1, usdJpy: 0, usdEur: 0, rateTime: 0, rateFetched: 0,
 };
 
 function newBoard(name) { return { name, notes: [], panX: 0, panY: 0, zoom: 1 }; }
 function board() { return st.boards[st.cur]; }
 function rate() { return st.rateSel === 1 ? st.rateB : st.rateA; }
-function newNote(v, x, y) { return { id: st.nextId++, v, memo: '', unit: '', x, y, color: st.newColor, sel: false, hidden: false }; }
+function newNote(v, x, y) { return { id: st.nextId++, v, memo: '', unit: '', x, y, color: st.newColor, sel: false, hidden: false, f: [] }; }
+/** 計算式の行を足す（多すぎるときは古い行から捨てる） */
+function addStep(l, s) { l.push(s); while (l.length > Calc.MAX_STEPS) l.shift(); }
+function addSteps(l, more) { for (const s of more || []) addStep(l, s); }
 function addHistory(s) { st.history.unshift(s); if (st.history.length > 300) st.history.length = 300; }
 
 function load() {
@@ -26,7 +29,7 @@ function load() {
   if (raw) {
     try {
       const o = JSON.parse(raw);
-      for (const k of ['cur', 'rateA', 'rateB', 'rateSel', 'round', 'vibrate', 'newColor', 'nextId', 'usdJpy', 'usdEur', 'rateTime', 'rateFetched'])
+      for (const k of ['cur', 'rateA', 'rateB', 'rateSel', 'round', 'vibrate', 'keepValue', 'newColor', 'nextId', 'usdJpy', 'usdEur', 'rateTime', 'rateFetched'])
         if (o[k] !== undefined) st[k] = o[k];
       st.history = Array.isArray(o.history) ? o.history : [];
       for (const bo of o.boards || []) {
@@ -35,7 +38,7 @@ function load() {
         for (const no of bo.notes || []) {
           const v = Dec.parse(no.v);
           if (!v) continue;
-          b.notes.push({ id: no.id || st.nextId++, v, memo: no.memo || '', unit: no.u || '', x: no.x || 0, y: no.y || 0, color: no.c || 0, sel: !!no.sel, hidden: false });
+          b.notes.push({ id: no.id || st.nextId++, v, memo: no.memo || '', unit: no.u || '', x: no.x || 0, y: no.y || 0, color: no.c || 0, sel: !!no.sel, hidden: false, f: Array.isArray(no.f) ? no.f.map(String) : [] });
         }
         st.boards.push(b);
       }
@@ -50,11 +53,11 @@ function load() {
 
 function save() {
   const o = {};
-  for (const k of ['cur', 'rateA', 'rateB', 'rateSel', 'round', 'vibrate', 'newColor', 'nextId', 'usdJpy', 'usdEur', 'rateTime', 'rateFetched']) o[k] = st[k];
+  for (const k of ['cur', 'rateA', 'rateB', 'rateSel', 'round', 'vibrate', 'keepValue', 'newColor', 'nextId', 'usdJpy', 'usdEur', 'rateTime', 'rateFetched']) o[k] = st[k];
   o.history = st.history;
   o.boards = st.boards.map(b => ({
     name: b.name, panX: b.panX, panY: b.panY, zoom: b.zoom,
-    notes: b.notes.map(n => ({ id: n.id, v: Dec.plain(n.v), memo: n.memo, u: n.unit, x: n.x, y: n.y, c: n.color, sel: n.sel })),
+    notes: b.notes.map(n => Object.assign({ id: n.id, v: Dec.plain(n.v), memo: n.memo, u: n.unit, x: n.x, y: n.y, c: n.color, sel: n.sel }, n.f && n.f.length ? { f: n.f } : {})),
   }));
   try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { toast('保存できませんでした（ブラウザの保存の場所がいっぱいかもしれません）'); }
 }
@@ -62,7 +65,9 @@ function save() {
 // ================= 電卓（押した順に計算する） =================
 const Calc = {
   acc: null, op: '', entry: null, lastOp: '', lastArg: null, error: false, line: '',
-  MAX: 15,
+  entrySet: false,   // entry は付箋・税込などから入れた数字（数字キーを押したら新しい数字にする）
+  accSteps: [], entrySteps: [],   // 計算式（v5 から）: acc の式と、入れた数字の式。付箋に一緒に残す
+  MAX: 15, MAX_STEPS: 40,
   parse(s) { return Dec.parse(s) || Dec.ZERO; },
   value() {
     if (this.error) return Dec.ZERO;
@@ -74,13 +79,20 @@ const Calc = {
     if (this.entry !== null) return Fmt.group(this.entry === '' || this.entry === '-' ? '0' : this.entry);
     return Fmt.fmt(this.value());
   },
+  /** 今の数字の計算式（打った数字だけのときは空） */
+  formula() {
+    if (this.error) return [];
+    return (this.entry !== null ? this.entrySteps : this.accSteps).slice();
+  },
   pending() {
     if (this.error || !this.op || !this.acc) return '';
     return Fmt.fmt(this.acc) + ' ' + this.op;
   },
+  /** 新しく数字を打ち始めるとき: 待っている計算がなければ、前の答えの式はもういらない */
+  startEntry() { this.entrySteps = []; if (!this.op) this.accSteps = []; },
   digit(d) {
     if (this.error) this.clear();
-    if (this.entry === null) this.entry = '';
+    if (this.entry === null || this.entrySet) { this.startEntry(); this.entry = ''; this.entrySet = false; }
     const n = (this.entry.match(/\d/g) || []).length;
     if (n + d.length > this.MAX) return;
     if (this.entry === '0') this.entry = '';
@@ -90,6 +102,7 @@ const Calc = {
   },
   dot() {
     if (this.error) this.clear();
+    if (this.entry === null || this.entrySet) { this.startEntry(); this.entry = null; this.entrySet = false; }
     if (this.entry === null || this.entry === '') this.entry = '0';
     if (this.entry === '-') this.entry = '-0';
     if (!this.entry.includes('.')) this.entry += '.';
@@ -97,23 +110,32 @@ const Calc = {
   back() {
     if (this.error) { this.clear(); return; }
     if (this.entry === null) return;
+    this.entrySteps = []; this.entrySet = false;
     this.entry = this.entry.slice(0, -1);
     if (this.entry === '-') this.entry = '';
   },
-  clear() { this.acc = null; this.op = ''; this.entry = null; this.lastOp = ''; this.lastArg = null; this.error = false; this.line = ''; },
+  clear() {
+    this.acc = null; this.op = ''; this.entry = null; this.entrySet = false; this.lastOp = ''; this.lastArg = null; this.error = false; this.line = '';
+    this.accSteps = []; this.entrySteps = [];
+  },
   negate() {
     if (this.error) return;
-    if (this.entry !== null) this.entry = this.entry.startsWith('-') ? this.entry.slice(1) : '-' + this.entry;
-    else if (this.acc) this.acc = Dec.neg(this.acc);
+    if (this.entry !== null) {
+      this.entry = this.entry.startsWith('-') ? this.entry.slice(1) : '-' + this.entry;
+      if (this.entrySteps.length) addStep(this.entrySteps, '符号を変える → ' + Fmt.fmt(this.parse(this.entry)));
+    } else if (this.acc) {
+      this.acc = Dec.neg(this.acc);
+      if (this.accSteps.length) addStep(this.accSteps, '符号を変える → ' + Fmt.fmt(this.acc));
+    }
   },
   setOp(c) {
     if (this.error) return;
     if (this.entry !== null) {
       const v = this.parse(this.entry);
       this.line += Fmt.fmt(v);
-      if (this.op && this.acc) { if (!this.apply(this.acc, this.op, v)) return; }
-      else this.acc = v;
-      this.entry = null;
+      if (this.op && this.acc) { addSteps(this.accSteps, this.entrySteps); if (!this.apply(this.acc, this.op, v)) return; }
+      else { this.acc = v; this.accSteps = this.entrySteps.slice(); }
+      this.entry = null; this.entrySteps = [];
       this.line += ' ' + c + ' ';
     } else {
       if (!this.acc) this.acc = Dec.ZERO;
@@ -127,18 +149,23 @@ const Calc = {
     if (this.op) {
       const arg = this.entry !== null ? this.parse(this.entry) : this.acc;
       this.line += Fmt.fmt(arg);
+      if (this.entry !== null) addSteps(this.accSteps, this.entrySteps);
       if (!this.apply(this.acc, this.op, arg)) return;
-      this.record(this.line + ' = ' + Fmt.fmt(this.acc));
+      const s = this.line + ' = ' + Fmt.fmt(this.acc);
+      this.record(s); addStep(this.accSteps, s);
       this.lastOp = this.op; this.lastArg = arg;
-      this.op = ''; this.entry = null; this.line = '';
+      this.op = ''; this.entry = null; this.entrySteps = []; this.line = '';
     } else if (this.lastOp) {
       const base = this.entry !== null ? this.parse(this.entry) : this.value();
-      const s = Fmt.fmt(base) + ' ' + this.lastOp + ' ' + Fmt.fmt(this.lastArg);
+      if (this.entry !== null) this.accSteps = this.entrySteps.slice();
+      let s = Fmt.fmt(base) + ' ' + this.lastOp + ' ' + Fmt.fmt(this.lastArg);
       if (!this.apply(base, this.lastOp, this.lastArg)) return;
-      this.record(s + ' = ' + Fmt.fmt(this.acc));
-      this.entry = null;
+      s += ' = ' + Fmt.fmt(this.acc);
+      this.record(s); addStep(this.accSteps, s);
+      this.entry = null; this.entrySteps = [];
     } else if (this.entry !== null) {
       this.acc = this.parse(this.entry); this.entry = null;
+      this.accSteps = this.entrySteps.slice(); this.entrySteps = [];
     }
   },
   /** ％: 「a ＋ b ％」は a に a の b％ を足す、「a × b ％」は a の b％ */
@@ -148,8 +175,11 @@ const Calc = {
     const H = Dec.HUND;
     if (!this.op || !this.acc) {
       const r = Dec.div(v, H);
-      this.record(Fmt.fmt(v) + '% = ' + Fmt.fmt(r));
-      this.acc = r; this.entry = null; this.op = ''; this.line = '';
+      const s = Fmt.fmt(v) + '% = ' + Fmt.fmt(r);
+      this.record(s);
+      if (this.entry !== null) this.accSteps = this.entrySteps.slice();
+      addStep(this.accSteps, s);
+      this.acc = r; this.entry = null; this.entrySteps = []; this.op = ''; this.line = '';
       return;
     }
     let r;
@@ -162,8 +192,11 @@ const Calc = {
         r = Dec.mul(Dec.div(this.acc, v), H);
     }
     this.line += Fmt.fmt(v) + '%';
-    this.record(this.line + ' = ' + Fmt.fmt(r));
-    this.acc = r; this.op = ''; this.entry = null; this.line = '';
+    const s = this.line + ' = ' + Fmt.fmt(r);
+    this.record(s);
+    if (this.entry !== null) addSteps(this.accSteps, this.entrySteps);
+    addStep(this.accSteps, s);
+    this.acc = r; this.op = ''; this.entry = null; this.entrySteps = []; this.line = '';
   },
   /** 消費税: include=true 税込に、false 税抜に。round: 0 切り捨て 1 四捨五入 2 切り上げ 3 そのまま */
   tax(rt, include, round) {
@@ -175,10 +208,17 @@ const Calc = {
     else if (round === 1) r = Dec.setScale(r, 0, 'HALF_UP');
     else if (round === 2) r = Dec.setScale(r, 0, 'UP');
     else r = Dec.roundSig(r, 15);
-    this.record(Fmt.fmt(v) + (include ? ' の税込（' : ' の税抜（') + Fmt.rate(rt) + '%） = ' + Fmt.fmt(r));
-    this.setValue(r);
+    const s = Fmt.fmt(v) + (include ? ' の税込（' : ' の税抜（') + Fmt.rate(rt) + '%） = ' + Fmt.fmt(r);
+    this.record(s);
+    const f = this.formula(); addStep(f, s);
+    this.setValue(r, f);
   },
-  setValue(v) { if (this.error) this.clear(); this.entry = Fmt.plain(v); },
+  /** 付箋や履歴の数字を、今打った数字として入れる（steps はその数字の計算式。なければ式なし） */
+  setValue(v, steps) {
+    if (this.error) this.clear();
+    this.entry = Fmt.plain(v); this.entrySet = true;
+    this.entrySteps = []; if (steps) addSteps(this.entrySteps, steps);
+  },
   apply(a, o, b) {
     try {
       switch (o) {
@@ -449,7 +489,7 @@ function noteDrop(n, cx, cy) {
   endGhost();
   const b = board();
   if (dispContains(cx, cy)) {
-    Calc.setValue(n.v); buzz(20);                          // 付箋はそのまま残す
+    Calc.setValue(n.v, n.f); buzz(20);                     // 付箋はそのまま残す（計算式も電卓へ）
   } else if (overTrash) {
     lastDeletedIndex = b.notes.indexOf(n);
     lastDeleted = n; lastDeletedMany = null;
@@ -517,7 +557,7 @@ disp.addEventListener('pointermove', e => {
     clearTimeout(D.timer);
     if (Calc.error) return;
     D.dragging = true;
-    const n = newNote(Calc.value(), 0, 0); st.nextId--; n.id = 0;
+    const n = newNote(Calc.value(), 0, 0); st.nextId--; n.id = 0; n.f = Calc.formula();
     D.note = n;
     G.note = n; G.scale = board().zoom; G.trash = null;
     G.grabX = ND.width(n) * G.scale / 2; G.grabY = ND.height(n) * G.scale + 14;   // 指の少し上に出す
@@ -543,6 +583,7 @@ function dispEnd(e, cancel) {
     const [x, y] = B.pointFromClient(e.clientX - grabX, e.clientY - grabY);
     n.id = st.nextId++; n.x = x; n.y = y;
     board().notes.push(n);
+    if (!st.keepValue) Calc.clear();   // 設定で「残さない」のとき
     buzz(20); save();
   }
   refresh();
@@ -642,15 +683,19 @@ function sumNotes() {
   if (all) use = b.notes.slice();
   if (!use.length) { toast('付箋がありません。計算した数字の欄を上に引っぱると付箋ができます'); return; }
   let sum = Dec.ZERO, s = '';
+  const steps = [];
   for (const n of use) {
+    addSteps(steps, n.f);   // 付箋の式も引き継ぐ
     sum = Dec.add(sum, n.v);
     if (s) s += Dec.sign(n.v) < 0 ? ' ' : ' + ';
     s += Fmt.fmt(n.v);
   }
-  Calc.setValue(sum);
   const u = commonUnit(use);
   const total = u === null ? Fmt.fmt(sum) : withUnit(sum, u);
-  addHistory((all ? '付箋の合計（全部 ' : '付箋の合計（選んだ ') + use.length + ' 枚）: ' + s + ' = ' + total);
+  const sumLine = (all ? '付箋の合計（全部 ' : '付箋の合計（選んだ ') + use.length + ' 枚）: ' + s + ' = ' + total;
+  addStep(steps, sumLine);
+  Calc.setValue(sum, steps);
+  addHistory(sumLine);
   save();
   toast((all ? '付箋 全部 ' : '選んだ付箋 ') + use.length + ' 枚の合計: ' + total + (u === null ? '\n（円・ドル・ユーロが混ざっています）' : ''));
   refresh();
@@ -658,9 +703,9 @@ function sumNotes() {
 
 function clearSelection() { for (const n of board().notes) n.sel = false; save(); refresh(); }
 
-function addNoteAuto(v, memo = '', unit = '') {
+function addNoteAuto(v, memo = '', unit = '', f = null) {
   const b = board(), r = B.rect();
-  const n = newNote(v, 0, 0); n.memo = memo; n.unit = unit;
+  const n = newNote(v, 0, 0); n.memo = memo; n.unit = unit; if (f) n.f = f.slice();
   const w = ND.width(n), h = ND.height(n);
   const vw = r.width / b.zoom, vh = r.height / b.zoom;
   const px = b.panX + 8, py = b.panY + 8;
@@ -718,13 +763,14 @@ function deleteDialog() {
 
 function noteMenu(n) {
   menu(withUnit(n.v, n.unit) + (n.memo ? '　' + n.memo : ''), [
-    ['電卓に入れる', () => { Calc.setValue(n.v); refresh(); }],
+    ['電卓に入れる', () => { Calc.setValue(n.v, n.f); refresh(); }],
+    ['計算式を見る', () => formulaDialog(n)],
     ['メモを書く', () => memoDialog(n)],
     ['色を変える', () => menu('付箋の色', COLOR_NAMES.map((c, i) => [c, () => { n.color = i; save(); refresh(); }]))],
     ['数字をコピー', () => copy(Fmt.plain(n.v))],
     ['同じ付箋をもう 1 枚', () => {
       const c = newNote(n.v, n.x + 10, n.y + 10);
-      c.memo = n.memo; c.unit = n.unit; c.color = n.color;
+      c.memo = n.memo; c.unit = n.unit; c.color = n.color; c.f = (n.f || []).slice();
       board().notes.push(c); save(); refresh();
     }],
     ['消す', () => {
@@ -749,7 +795,7 @@ function emptyMenu(bx, by) {
 
 function displayMenu() {
   menu(Calc.text(), [
-    ['付箋にする（空いている所に貼る）', () => addNoteAuto(Calc.value())],
+    ['付箋にする（空いている所に貼る）', () => { addNoteAuto(Calc.value(), '', '', Calc.formula()); if (!st.keepValue) { Calc.clear(); refresh(); } }],
     ['数字をコピー', () => copy(Fmt.plain(Calc.value()))],
     ['コピーした数字を貼り付け', async () => { const v = await pasteNumber(); if (v) { Calc.setValue(v); refresh(); } }],
     ['履歴を見る', historyDialog],
@@ -830,6 +876,20 @@ function promptDlg(title, value, placeholder, ok, fn, extra) {
   setTimeout(() => { inp.focus(); inp.select(); }, 50);
 }
 
+/** 付箋の計算式（その数字が出てくるまでの計算）を見せる */
+function formulaDialog(n) {
+  const title = withUnit(n.v, n.unit) + (n.memo ? '　' + n.memo : '');
+  const f = n.f || [];
+  if (!f.length) {
+    dialog({ title, body: 'この付箋には計算式がありません。\n\n打った数字をそのまま付箋にしたときや、計算式を覚えるようになる前（v4 まで）に作った付箋は、式がありません。', buttons: [['閉じる']] });
+    return;
+  }
+  const box = document.createElement('ol'); box.className = 'formula';
+  for (const s of f) { const li = document.createElement('li'); li.textContent = s; box.appendChild(li); }
+  const text = f.map((s, i) => (f.length > 1 ? (i + 1) + '.  ' : '') + s).join('\n');
+  dialog({ title, body: box, buttons: [['式をコピー', () => { copy(text); }, 'left'], ['閉じる']] });
+}
+
 function memoDialog(n) {
   promptDlg('メモ（' + Fmt.fmt(n.v) + '）', n.memo, '例: 電気代、A 社、ランチ', '決定', s => {
     if (s === null) return;
@@ -854,6 +914,7 @@ function mainMenu() {
     ['付箋をきれいに並べる', arrange],
     ['付箋が全部見えるようにする', fitAll],
     ['キーを押したとき振動する: ' + (st.vibrate ? 'する' : 'しない'), () => { st.vibrate = !st.vibrate; save(); toast(st.vibrate ? '振動します（iPhone では振動しません）' : '振動しません'); }],
+    ['付箋にしたあと、数字を欄に: ' + (st.keepValue ? '残す' : '残さない'), () => { st.keepValue = !st.keepValue; save(); toast(st.keepValue ? '付箋にしたあとも、数字を欄に残します' : '付箋にしたら、欄の数字を消して 0 にします'); }],
     ['使い方', helpDialog],
     ['このアプリについて', aboutDialog],
   ]);
@@ -902,8 +963,8 @@ function historyDialog() {
       dd.close();
       if (!val) return;
       menu(line, [
-        ['答え ' + Fmt.fmt(val) + ' を電卓に入れる', () => { Calc.setValue(val); refresh(); }],
-        ['答えを付箋にする（メモに式）', () => addNoteAuto(val, line.slice(0, Math.max(0, eq)).trim())],
+        ['答え ' + Fmt.fmt(val) + ' を電卓に入れる', () => { Calc.setValue(val, [line]); refresh(); }],
+        ['答えを付箋にする（メモに式）', () => addNoteAuto(val, line.slice(0, Math.max(0, eq)).trim(), '', [line])],
       ]);
     });
     box.appendChild(r);
@@ -999,10 +1060,14 @@ function currencyDialog() {
       r.appendChild(t);
       if (i !== from) {
         const memo = syms[from] + Fmt.fmt(amount) + ' から';
+        // 計算式: 今の数字の式に、通貨の換算の行を足す
+        const cf = Calc.formula();
+        addStep(cf, syms[from] + ' ' + Fmt.fmt(amount) + ' を' + names[i] + 'に = ' + syms[i] + ' ' + Fmt.group(Dec.plain(fv))
+          + '（1 ドル ＝ ' + st.usdJpy.toFixed(2) + ' 円、1 ユーロ ＝ ' + (st.usdJpy / st.usdEur).toFixed(2) + ' 円）');
         const c = document.createElement('button'); c.className = 'toCalc'; c.innerHTML = '電卓と<br>付箋へ';
-        c.addEventListener('click', () => { Calc.setValue(fv); addNoteAuto(fv, memo, names[i]); refresh(); dd.close(); });
+        c.addEventListener('click', () => { Calc.setValue(fv, cf); addNoteAuto(fv, memo, names[i], cf); refresh(); dd.close(); });
         const n = document.createElement('button'); n.className = 'toNote'; n.innerHTML = '付箋<br>だけ';
-        n.addEventListener('click', () => { addNoteAuto(fv, memo, names[i]); dd.close(); });
+        n.addEventListener('click', () => { addNoteAuto(fv, memo, names[i], cf); dd.close(); });
         r.append(c, n);
       }
       rows.appendChild(r);
@@ -1022,8 +1087,8 @@ function currencyDialog() {
 
 // ================= 説明 =================
 const HELP = [
-  ['付箋を作る', '計算した数字の欄（白い欄）を、指で上に引っぱって離すと、その数字が付箋になって貼られます。電卓の数字は消えずに残ります。\n長押し →「付箋にする」でも作れます。'],
-  ['付箋を使う', '・付箋を数字の欄まで引っぱって離す: その数字を計算に使う（付箋は残る）\n・タップ: 選ぶ（赤い枠）。もう一度タップでやめる\n・2 回タップ: メモを書く\n・長押し: メニュー（色・コピー・もう 1 枚・消す など）\n・引っぱって下のキーの所（赤いゴミ箱）で離す: 消す'],
+  ['付箋を作る', '計算した数字の欄（白い欄）を、指で上に引っぱって離すと、その数字が付箋になって貼られます。電卓の数字は消えずに残ります（右上の ⋮ →「付箋にしたあと、数字を欄に」を「残さない」にすると、付箋にしたら 0 になります）。\n長押し →「付箋にする」でも作れます。'],
+  ['付箋を使う', '・付箋を数字の欄まで引っぱって離す: その数字を計算に使う（付箋は残る）\n・タップ: 選ぶ（赤い枠）。もう一度タップでやめる\n・2 回タップ: メモを書く\n・長押し: メニュー（計算式を見る・色・コピー・もう 1 枚・消す など）\n・「計算式を見る」: その数字が出てくるまでの計算を出します（付箋を電卓に戻して続けた計算・税込・通貨・Σ の合計も、つながって残ります）\n・引っぱって下のキーの所（赤いゴミ箱）で離す: 消す'],
   ['選んだ付箋だけ足す', '足したい付箋を 1 枚ずつタップすると、赤い枠が付いて選んだ状態になります（もう一度タップでやめる）。キャンバスの下の赤い帯に「選んだ ◯ 枚の合計」がいつも出ます。「合計を電卓へ」でその合計が数字の欄に入り、「はずす」で選んだ印を全部はずします。'],
   ['付箋を消す', '「付箋を消す」ボタン: 付箋を全部消す・選んだ付箋だけ消す。消したすぐあとなら「消した付箋を戻す」で戻せます。'],
   ['合計', '右の「Σ」ボタン: 選んだ付箋があればその合計、なければ全部の合計を、数字の欄に出します。'],
@@ -1043,7 +1108,7 @@ function helpDialog() {
   dialog({ title: '使い方', body: box, buttons: [['閉じる']] });
 }
 function aboutDialog() {
-  dialog({ title: '超！付箋電卓', body: 'Web 版 v4（Android 版 v3 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN', buttons: [['閉じる']] });
+  dialog({ title: '超！付箋電卓', body: 'Web 版 v5（Android 版 v4 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN', buttons: [['閉じる']] });
 }
 
 // ================= はじめ =================

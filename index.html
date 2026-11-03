@@ -112,6 +112,7 @@ button { font-family: inherit; border: none; cursor: pointer; padding: 0; color:
 .curRow .toNote { width: 64px; background: var(--gold); color: var(--navy); }
 .wide { display: block; width: 100%; height: 42px; border-radius: 20px; font-size: 15px; font-weight: bold; color: #fff; background: #5B7F9E; margin-top: 12px; }
 .small { font-size: 13px; color: #666; }
+.formula { margin: 0; padding: 0 0 0 26px; font-size: 18px; line-height: 1.7; color: var(--navy); user-select: text; -webkit-user-select: text; word-break: break-all; }
 .hist { padding: 11px 20px; border-bottom: 1px solid #eee; font-size: 15px; color: #222; word-break: break-all; }
 .hist:active { background: #eee; }
 .help h4 { margin: 12px 0 2px; font-size: 15px; color: var(--navy); }
@@ -165,8 +166,8 @@ button { font-family: inherit; border: none; cursor: pointer; padding: 0; color:
   fit(); addEventListener('resize', fit);
 })();
 </script>
-<script src="js/dec.js?v=4"></script>
-<script src="js/app.js?v=4"></script>
+<script src="js/dec.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
 <script>
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 </script>
