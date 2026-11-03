@@ -1043,7 +1043,7 @@ function helpDialog() {
   dialog({ title: '使い方', body: box, buttons: [['閉じる']] });
 }
 function aboutDialog() {
-  dialog({ title: '超！付箋電卓', body: 'Web 版 v2（Android 版 v3 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN', buttons: [['閉じる']] });
+  dialog({ title: '超！付箋電卓', body: 'Web 版 v3（Android 版 v3 と同じ動き）\n\n計算した数字を付箋にして貼っておき、あとで足したり使ったりできる電卓です。広告はありません。\n\n通貨のレート: open.er-api.com（ExchangeRate-API）\n\npowered by CHOCORIN\n\n' + scrInfo(), buttons: [['閉じる']] });
 }
 
 // ================= はじめ =================
@@ -1068,3 +1068,14 @@ window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe($('boardBox'));
 resize();
 refresh();
+
+// 画面の大きさ（iPhone で下の余白を合わせるため、「この電卓について」に小さく出す）
+function scrInfo() {
+  const a = document.getElementById('app').getBoundingClientRect(), k = document.getElementById('keys').getBoundingClientRect();
+  const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;top:0;left:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);visibility:hidden';
+  document.body.appendChild(pr); const cs = getComputedStyle(pr), st = cs.paddingTop, sb = cs.paddingBottom; pr.remove();
+  const vv = window.visualViewport;
+  return '画面 ' + [innerWidth, innerHeight, screen.width, screen.height, document.documentElement.clientHeight,
+    vv ? Math.round(vv.height) + '/' + Math.round(vv.offsetTop) : '-', Math.round(a.top) + '-' + Math.round(a.bottom), Math.round(k.bottom),
+    parseInt(st) + '/' + parseInt(sb), navigator.standalone ? 'S' : 'B'].join(' ');
+}
